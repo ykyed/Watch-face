@@ -6,9 +6,6 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.Choreographer;
@@ -137,14 +134,14 @@ public class WatchFaceView extends View {
             currentHour = now.getHour() % 12;
             currentMinute = now.getMinute();
             currentSecond = now.getSecond();
-            Log.d(TAG, "getCurrentTime(), ZonedDateTime: " + now);
+            Log.d(TAG, "updateCurrentTime(), ZonedDateTime: " + now);
         }
         else {
             Calendar calendar = Calendar.getInstance();
             currentHour = calendar.get(Calendar.HOUR);
             currentMinute = calendar.get(Calendar.MINUTE);
             currentSecond = calendar.get(Calendar.SECOND);
-            Log.d(TAG, "getCurrentTime(), Calendar: " + String.format("%02d:%02d:%02d", currentHour, currentMinute, currentSecond));
+            Log.d(TAG, "updateCurrentTime(), Calendar: " + String.format("%02d:%02d:%02d", currentHour, currentMinute, currentSecond));
         }
     }
 
@@ -184,7 +181,7 @@ public class WatchFaceView extends View {
             currentHour++;
         }
         currentHour %= 12;
-        Log.d(TAG, "updateClock, Current Time: " + String.format("%02d:%02d:%02d", currentHour, currentMinute, currentSecond));
+        Log.d(TAG, "incrementTime, Current Time: " + String.format("%02d:%02d:%02d", currentHour, currentMinute, currentSecond));
     }
 
     private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {

@@ -3,7 +3,6 @@ package com.wooastudio.task1.utils;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.util.Log;
 
 public class BitmapUtils {
 
