@@ -31,8 +31,8 @@ public class BitmapUtils {
         options.inSampleSize = calculateInSampleSize(options, width, height);
         options.inJustDecodeBounds = false;
 
-        Bitmap scaledBitmap = BitmapFactory.decodeResource(context.getResources(), resId, options);
-        return Bitmap.createScaledBitmap(scaledBitmap, width, height, true);
+        Bitmap originBitmap = BitmapFactory.decodeResource(context.getResources(), resId, options);
+        return Bitmap.createScaledBitmap(originBitmap, width, height, true);
     }
 
     private static int calculateInSampleSize(BitmapFactory.Options options, int width, int height) {

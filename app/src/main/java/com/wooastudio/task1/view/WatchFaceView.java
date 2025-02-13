@@ -7,9 +7,11 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.util.AttributeSet;
 import android.util.Log;
+import android.view.Choreographer;
 import android.view.View;
 import android.view.animation.LinearInterpolator;
 
@@ -31,12 +33,13 @@ public class WatchFaceView extends View {
     private int currentHour, currentMinute, currentSecond;
     private float left, top, centerX, centerY;
 
-    private ValueAnimator animator;
-    private Paint progressPaint, drawablePaint;
-    private RectF progressRectF;
-    private float animatedProgress;
+    private ValueAnimator progressIndicatorAnimator;
+    private Paint progressIndicatorPaint, drawablePaint;
+    private RectF progressIndicatorRectF;
+    private float ProgressIndicatorAngle;
 
-    private final Handler handler = new Handler();
+    private final Choreographer choreographer = Choreographer.getInstance();
+    private long lastUpdateTime = 0;
 
     public WatchFaceView(Context context) {
         super(context);
@@ -49,14 +52,15 @@ public class WatchFaceView extends View {
     }
 
     private void init() {
-        progressPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        progressPaint.setColor(getResources().getColor(R.color.progress_indicator, getContext().getTheme()));
-        progressPaint.setStyle(Paint.Style.STROKE);
-        progressPaint.setStrokeCap(Paint.Cap.ROUND);
+        progressIndicatorPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        progressIndicatorPaint.setColor(getResources().getColor(R.color.progress_indicator, getContext().getTheme()));
+        progressIndicatorPaint.setStyle(Paint.Style.STROKE);
+        progressIndicatorPaint.setStrokeCap(Paint.Cap.ROUND);
 
         drawablePaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
 
-        setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+        // for anti-aliasing
+        //setLayerType(View.LAYER_TYPE_SOFTWARE, null);
     }
 
     @Override
@@ -65,10 +69,13 @@ public class WatchFaceView extends View {
 
         int bgSize = Math.min(w, h);
 
-        int scaledMinuteHandWidth = BitmapUtils.getImageWidth(getContext(), R.drawable.minute_hand) * bgSize / BitmapUtils.getImageWidth(getContext(), R.drawable.background);
-        int scaledMinuteHandHeight = BitmapUtils.getImageHeight(getContext(), R.drawable.minute_hand) * bgSize / BitmapUtils.getImageHeight(getContext(), R.drawable.background);
-        int scaledHourHandWidth = BitmapUtils.getImageWidth(getContext(), R.drawable.hour_hand) * bgSize / BitmapUtils.getImageWidth(getContext(), R.drawable.background);
-        int scaledHourHandHeight = BitmapUtils.getImageHeight(getContext(), R.drawable.hour_hand) * bgSize / BitmapUtils.getImageHeight(getContext(), R.drawable.background);
+        int bgWidth = BitmapUtils.getImageWidth(getContext(), R.drawable.background);
+        int bgHeight = BitmapUtils.getImageHeight(getContext(), R.drawable.background);
+
+        int scaledMinuteHandWidth = BitmapUtils.getImageWidth(getContext(), R.drawable.minute_hand) * bgSize / bgWidth;
+        int scaledMinuteHandHeight = BitmapUtils.getImageHeight(getContext(), R.drawable.minute_hand) * bgSize / bgHeight;
+        int scaledHourHandWidth = BitmapUtils.getImageWidth(getContext(), R.drawable.hour_hand) * bgSize / bgWidth;
+        int scaledHourHandHeight = BitmapUtils.getImageHeight(getContext(), R.drawable.hour_hand) * bgSize / bgHeight;
 
         scaledBgImage = BitmapUtils.loadBitmap(getContext(), R.drawable.background, bgSize, bgSize);
         scaledMinuteHand = BitmapUtils.loadBitmap(getContext(), R.drawable.minute_hand, scaledMinuteHandWidth, scaledMinuteHandHeight);
@@ -81,8 +88,8 @@ public class WatchFaceView extends View {
 
         float progressIndicatorRadius = (float) scaledBgImage.getWidth() / 2.6f;
         float progressIndicatorStrokeWidth = DisplayUtils.pxToDp(getContext(), (int) (scaledMinuteHand.getWidth() * 2.5));
-        progressPaint.setStrokeWidth(progressIndicatorStrokeWidth);
-        progressRectF = new RectF(centerX - progressIndicatorRadius, centerY - progressIndicatorRadius, centerX + progressIndicatorRadius, centerY + progressIndicatorRadius);
+        progressIndicatorPaint.setStrokeWidth(progressIndicatorStrokeWidth);
+        progressIndicatorRectF = new RectF(centerX - progressIndicatorRadius, centerY - progressIndicatorRadius, centerX + progressIndicatorRadius, centerY + progressIndicatorRadius);
     }
 
     @Override
@@ -101,30 +108,30 @@ public class WatchFaceView extends View {
         canvas.drawBitmap(scaledHourHand, centerX- ((float) scaledHourHand.getWidth() / 2), centerY - scaledHourHand.getHeight() + (float) scaledHourHand.getWidth() / 2, drawablePaint);
         canvas.restore();
 
-        canvas.drawArc(progressRectF, -90f, animatedProgress, false, progressPaint);
+        canvas.drawArc(progressIndicatorRectF, -90f, ProgressIndicatorAngle, false, progressIndicatorPaint);
     }
 
     @Override
     protected void onWindowVisibilityChanged(int visibility) {
         super.onWindowVisibilityChanged(visibility);
         if (visibility == View.VISIBLE) {
-            getCurrentTime();
-            handler.post(updateClock);
-            startProgressIndicatorAnimation();
+            updateCurrentTime();
+            choreographer.postFrameCallback(frameCallback);
+            startProgressAnimation();
         }
         else {
-            handler.removeCallbacks(updateClock);
-            cancelProgressIndicatorAnimation();
+            choreographer.removeFrameCallback(frameCallback);
+            cancelProgressAnimation();
         }
     }
 
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
-        cancelProgressIndicatorAnimation();
+        cancelProgressAnimation();
     }
 
-    private void getCurrentTime() {
+    private void updateCurrentTime() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             ZonedDateTime now = ZonedDateTime.now();
             currentHour = now.getHour() % 12;
@@ -141,52 +148,55 @@ public class WatchFaceView extends View {
         }
     }
 
-    private void startProgressIndicatorAnimation() {
+    private void startProgressAnimation() {
 
-        animator = ValueAnimator.ofFloat(-360f, 360f);
-        animator.setCurrentFraction((0.5f * currentSecond / 60) + 0.5f);
-        animator.setDuration(120000);
-        animator.setInterpolator(new LinearInterpolator());
-        animator.setRepeatCount(ValueAnimator.INFINITE);
-        animator.addUpdateListener(valueAnimator -> {
-            animatedProgress = (float)valueAnimator.getAnimatedValue();
+        progressIndicatorAnimator = ValueAnimator.ofFloat(-360f, 360f);
+        progressIndicatorAnimator.setCurrentFraction((0.5f * currentSecond / 60) + 0.5f);
+        progressIndicatorAnimator.setDuration(120000);
+        progressIndicatorAnimator.setInterpolator(new LinearInterpolator());
+        progressIndicatorAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        progressIndicatorAnimator.addUpdateListener(valueAnimator -> {
+            ProgressIndicatorAngle = (float)valueAnimator.getAnimatedValue();
             invalidate();
         });
 
-        if (animator.isRunning()) {
-            animator.cancel();
+        if (progressIndicatorAnimator.isRunning()) {
+            progressIndicatorAnimator.cancel();
         }
-        animator.start();
+        progressIndicatorAnimator.start();
     }
 
-    private void cancelProgressIndicatorAnimation() {
-        if (animator.isRunning()) {
-            animator.cancel();
+    private void cancelProgressAnimation() {
+        if (progressIndicatorAnimator.isRunning()) {
+            progressIndicatorAnimator.cancel();
         }
     }
 
-    private final Runnable updateClock = new Runnable() {
+    private void incrementTime() {
+        currentSecond++;
+        if (currentSecond == 60) {
+            currentSecond = 0;
+            currentMinute++;
+        }
+
+        if (currentMinute == 60) {
+            currentMinute = 0;
+            currentHour++;
+        }
+        currentHour %= 12;
+        Log.d(TAG, "updateClock, Current Time: " + String.format("%02d:%02d:%02d", currentHour, currentMinute, currentSecond));
+    }
+
+    private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {
         @Override
-        public void run() {
+        public void doFrame(long frameTimeNanos) {
+            long currentTimeMillis = System.currentTimeMillis();
 
-            long currentTimeMillis = SystemClock.elapsedRealtime();
-            Log.d(TAG, "updateClock, Current Time: " + String.format("%02d:%02d:%02d", currentHour, currentMinute, currentSecond));
-
-            currentSecond++;
-            if (currentSecond == 60) {
-                currentSecond = 0;
-                currentMinute++;
+            if (currentTimeMillis / 1000 > lastUpdateTime / 1000) {
+                incrementTime();
+                lastUpdateTime = currentTimeMillis;
             }
-
-            if (currentMinute == 60) {
-                currentMinute = 0;
-                currentHour++;
-            }
-
-            currentHour %= 12;
-
-            long nextUpdateTime = currentTimeMillis + (1000 - (currentTimeMillis % 1000));
-            handler.postAtTime(this, nextUpdateTime);
+            choreographer.postFrameCallback(this);
         }
     };
 }
